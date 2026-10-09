@@ -19,17 +19,21 @@ export default function AIPage() {
 
 async function AIContent() {
   const ctx = await requireContext();
+  const canManage = hasRole(ctx, "manager");
   return (
     <AIWorkspace
       settings={getAISettings(ctx.farm.id)}
       replyLanguage={getReplyLanguage(ctx.user.id, ctx.farm.id)}
-      canManage={hasRole(ctx, "manager")}
+      canManage={canManage}
       voiceServer={Boolean(process.env.ASR_BASE_URL)}
       ttsServer={Boolean(process.env.TTS_BASE_URL)}
+      // Model details are only sent to managers and owners.
       status={
-        <Suspense fallback={<StatusList loading />}>
-          <Status />
-        </Suspense>
+        canManage ? (
+          <Suspense fallback={<StatusList loading />}>
+            <Status />
+          </Suspense>
+        ) : null
       }
     />
   );
