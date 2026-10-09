@@ -1,0 +1,286 @@
+"use client";
+
+import { Check, Copy, Link2, Pencil, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
+import { useState, useTransition } from "react";
+import { regenerateJoinCodeAction, removeMemberAction, updateMemberAction } from "@/app/(main)/team/actions";
+import { Button, Field, FormError, Modal, SelectField } from "@/components/ui";
+import { useDialogAction } from "@/components/use-dialog-action";
+import type { Role } from "@/lib/auth";
+import { formatDay } from "@/lib/dates";
+import type { Member } from "@/lib/farms";
+
+type BatchOption = { id: string; label: string };
+
+const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", worker: "Worker" };
+
+function useCopy() {
+  const [copied, setCopied] = useState<string | null>(null);
+  return {
+    copied,
+    copy: async (key: string, text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(key);
+        setTimeout(() => setCopied(null), 2000);
+      } catch {
+        window.prompt("Copy this:", text);
+      }
+    },
+  };
+}
+
+export function TeamView({
+  farmName,
+  joinCode,
+  joinLink,
+  qrSvg,
+  members,
+  batches,
+  me,
+  canManage,
+}: {
+  farmName: string;
+  joinCode: string;
+  joinLink: string;
+  qrSvg: string;
+  members: Member[];
+  batches: BatchOption[];
+  me: { userId: number; role: Role };
+  canManage: boolean;
+}) {
+  const [inviting, setInviting] = useState(false);
+  const [editing, setEditing] = useState<Member | null>(null);
+  const [regenerating, startRegen] = useTransition();
+  const { copied, copy } = useCopy();
+
+  const online = members.filter((m) => m.online && m.status === "active").length;
+  const assignments = members.reduce((s, m) => s + m.batchIds.length, 0);
+  const inviteText = `Join ${farmName} on Agriflow: ${joinLink} (farm code ${joinCode})`;
+
+  return (
+    <>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Team Members</h2>
+          <p className="mt-1 text-sm text-muted">Manage farm and batch access, role-based permissions.</p>
+        </div>
+        {canManage && (
+          <Button onClick={() => setInviting(true)}>
+            <UserPlus className="size-4" /> Invite Member
+          </Button>
+        )}
+      </div>
+
+      <div className="mb-4 grid grid-cols-3 gap-3 sm:gap-4">
+        {[
+          ["Total users", members.length],
+          ["Online", online],
+          ["Batch assignments", assignments],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-2xl border border-line bg-card p-4 sm:p-5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">{label}</p>
+            <p className="mt-3 text-2xl font-semibold">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {canManage && (
+        <section className="mb-4 max-w-xl rounded-2xl border border-line bg-card p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Farm join code</p>
+            <button
+              onClick={() => {
+                if (confirm("Make a new code? The old code and link will stop working.")) {
+                  startRegen(() => regenerateJoinCodeAction());
+                }
+              }}
+              disabled={regenerating}
+              className="inline-flex items-center gap-1.5 rounded-full bg-background px-3 py-1 text-xs font-medium hover:bg-neutral-200 disabled:opacity-50"
+            >
+              <RefreshCw className={`size-3.5 ${regenerating ? "animate-spin" : ""}`} /> Regenerate
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className="font-mono text-2xl font-bold tracking-[0.2em]">{joinCode}</p>
+            <button
+              onClick={() => copy("code", joinCode)}
+              className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs font-medium hover:bg-neutral-200"
+            >
+              {copied === "code" ? <Check className="size-3.5 text-good" /> : <Copy className="size-3.5" />} Copy code
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className="max-w-full truncate text-xs text-muted">{joinLink}</p>
+            <button
+              onClick={() => copy("link", joinLink)}
+              className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs font-medium hover:bg-neutral-200"
+            >
+              {copied === "link" ? <Check className="size-3.5 text-good" /> : <Link2 className="size-3.5" />} Link
+            </button>
+          </div>
+          <div
+            className="mt-4 w-fit rounded-xl bg-background p-3 [&_svg]:size-32"
+            role="img"
+            aria-label="QR code for the farm join link"
+            // Generated by the qrcode library from the join link; contains no user markup.
+            dangerouslySetInnerHTML={{ __html: qrSvg }}
+          />
+          <p className="mt-3 text-xs text-muted">
+            Share this code or link with workers. They enter it on the onboarding screen.
+          </p>
+        </section>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {members.map((m) => {
+          const editable = canManage && (me.role === "owner" || m.role === "worker");
+          return (
+            <article key={m.userId} className="relative rounded-2xl border border-line bg-card p-5 text-center">
+              {editable && (
+                <button
+                  onClick={() => setEditing(m)}
+                  className="absolute right-3 top-3 grid size-8 place-items-center rounded-lg bg-background text-muted hover:text-foreground"
+                  aria-label={`Edit ${m.name}`}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+              <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-foreground text-2xl font-semibold text-white">
+                {m.name.charAt(0).toUpperCase()}
+              </span>
+              <p className="mt-3 font-semibold">
+                {m.name}
+                {m.userId === me.userId && <span className="font-normal text-muted"> (you)</span>}
+              </p>
+              <p className="truncate text-xs text-muted">{m.email}</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2 text-[11px] font-medium">
+                <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5">
+                  <ShieldCheck className="size-3" /> {m.title && m.title !== ROLE_LABEL[m.role] ? `${ROLE_LABEL[m.role]} · ${m.title}` : ROLE_LABEL[m.role]}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+                    m.status === "active" ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+                  }`}
+                >
+                  <span className={`size-1.5 rounded-full ${m.status === "active" ? (m.online ? "bg-good" : "bg-good/50") : "bg-bad"}`} />
+                  {m.status === "active" ? (m.online ? "Online" : "Active") : "Suspended"}
+                </span>
+              </div>
+              {m.batchIds.length > 0 && (
+                <p className="mt-2 text-[11px] text-muted">Batches: {m.batchIds.join(", ")}</p>
+              )}
+              <p className="mt-3 text-[11px] text-muted">
+                Last active: {m.lastActiveAt ? formatDay(m.lastActiveAt, { day: "numeric", month: "numeric", year: "numeric" }) : "never"}
+              </p>
+            </article>
+          );
+        })}
+      </div>
+
+      {inviting && (
+        <Modal open onClose={() => setInviting(false)} title="Invite a team member" description={`Workers join ${farmName} with this code or link.`}>
+          <div className="space-y-3">
+            <div className="rounded-xl bg-background p-4 text-center">
+              <p className="font-mono text-2xl font-bold tracking-[0.2em]">{joinCode}</p>
+              <p className="mt-1 truncate text-xs text-muted">{joinLink}</p>
+            </div>
+            <Button variant="secondary" className="w-full" onClick={() => copy("invite", inviteText)}>
+              {copied === "invite" ? <Check className="size-4 text-good" /> : <Copy className="size-4" />} Copy invite
+            </Button>
+            <p className="text-xs text-muted">New members join as workers. You can change their role here afterwards.</p>
+          </div>
+        </Modal>
+      )}
+
+      {editing && (
+        <EditMemberDialog
+          key={editing.userId}
+          member={editing}
+          batches={batches}
+          canSetRoles={me.role === "owner"}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function EditMemberDialog({
+  member,
+  batches,
+  canSetRoles,
+  onClose,
+}: {
+  member: Member;
+  batches: BatchOption[];
+  canSetRoles: boolean;
+  onClose: () => void;
+}) {
+  const [state, onSubmit, pending] = useDialogAction(
+    (prev, form) => updateMemberAction(member.userId, prev, form),
+    onClose,
+  );
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removing, startRemove] = useTransition();
+
+  return (
+    <Modal open onClose={onClose} title={`Edit ${member.name}`} description={member.email}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SelectField label="Role" name="role" defaultValue={member.role} disabled={!canSetRoles}>
+            <option value="owner">Owner</option>
+            <option value="manager">Manager</option>
+            <option value="worker">Worker</option>
+          </SelectField>
+          {/* A disabled select isn't submitted, so send the current role. */}
+          {!canSetRoles && <input type="hidden" name="role" value={member.role} />}
+          <Field label="Title" name="title" defaultValue={member.title} placeholder="Worker / Student" />
+          <SelectField label="Access" name="status" defaultValue={member.status}>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+          </SelectField>
+        </div>
+        {batches.length > 0 && (
+          <fieldset>
+            <legend className="text-xs font-medium text-neutral-700">Assigned batches</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {batches.map((b) => (
+                <label key={b.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm">
+                  <input type="checkbox" name="batchIds" value={b.id} defaultChecked={member.batchIds.includes(b.id)} className="accent-foreground" />
+                  {b.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
+        <FormError message={state.error ?? removeError ?? undefined} />
+        <div className="flex flex-wrap justify-between gap-2 pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-bad hover:bg-bad-soft hover:text-bad"
+            disabled={removing}
+            onClick={() => {
+              if (!confirm(`Remove ${member.name} from this farm?`)) return;
+              startRemove(async () => {
+                const result = await removeMemberAction(member.userId);
+                if (result.ok) onClose();
+                else setRemoveError(result.error ?? "Couldn't remove them.");
+              });
+            }}
+          >
+            {removing ? "Removing…" : "Remove from farm"}
+          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}
