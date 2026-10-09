@@ -1,9 +1,9 @@
 "use client";
 
-import { Camera, Check, Gauge, LoaderCircle, Mic, Sparkles, Square, Volume2 } from "lucide-react";
+import { Camera, Check, Gauge, LoaderCircle, Mic, Settings2, Sparkles, Square, Volume2 } from "lucide-react";
 import { useRef, useState, useTransition, type ReactNode } from "react";
 import { saveAISettingsAction } from "@/app/(main)/ai/actions";
-import { Switch } from "@/components/ui";
+import { Button, Modal, Switch } from "@/components/ui";
 import { LANGUAGES, REPLY_LANGUAGES, type LanguageCode, type ReplyLanguage } from "@/lib/languages";
 import { VOICES, VOICE_SAMPLES, type VoiceChoice } from "@/lib/voices";
 import { ChatView, LanguageSelect, useChat } from "./chat";
@@ -33,17 +33,25 @@ export function AIWorkspace({
   canManage: boolean;
 }) {
   const chat = useChat({ voiceInput: settings.voiceInput, language: replyLanguage, voiceServer, ttsServer });
+  const [current, setCurrent] = useState(settings); // latest saved, for reopening the pop-up
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <>
-      <div className="mb-5">
-        <h2 className="text-2xl font-semibold tracking-tight">Agriflow AI</h2>
-        <p className="mt-1 text-sm text-muted">
-          Talk or type to your farm assistant, and configure the AI that powers Agriflow&apos;s insights.
-        </p>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Agriflow AI</h2>
+          <p className="mt-1 text-sm text-muted">Talk or type to your farm assistant.</p>
+        </div>
+        {/* Model details and settings are for managers, behind a button. */}
+        {canManage && (
+          <Button variant="secondary" onClick={() => setSettingsOpen(true)}>
+            <Settings2 className="size-4" /> AI Settings
+          </Button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div>
         <section className="flex h-[calc(100dvh-12rem)] min-h-[480px] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-card">
           <header className="flex items-center gap-3 border-b border-line px-5 py-4">
             <span className="grid size-8 place-items-center rounded-lg bg-foreground text-white">
@@ -60,14 +68,27 @@ export function AIWorkspace({
           <ChatView chat={chat} autoFocus={false} />
         </section>
 
-        <SettingsCard
-          settings={settings}
-          status={status}
-          canManage={canManage}
-          ttsServer={ttsServer}
-          onSaved={(s) => chat.applyPrefs({ voiceInput: s.voiceInput })}
-        />
       </div>
+
+      {canManage && (
+        <Modal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          title="AI Settings"
+          description="The AI models powering Agriflow's chat, voice and InsightEngine, and how they behave."
+        >
+          <SettingsCard
+            settings={current}
+            status={status}
+            canManage={canManage}
+            ttsServer={ttsServer}
+            onSaved={(s) => {
+              setCurrent(s);
+              chat.applyPrefs({ voiceInput: s.voiceInput });
+            }}
+          />
+        </Modal>
+      )}
     </>
   );
 }
@@ -182,11 +203,8 @@ function SettingsCard({
   };
 
   return (
-    <div className="h-fit rounded-2xl border border-line bg-card p-5">
-      <div className="mb-1 flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-2 text-base font-semibold">
-          <Sparkles className="size-4" /> AI Settings
-        </h3>
+    <div>
+      <div className="mb-3 flex justify-end">
         {canManage && (
           <span className="flex items-center gap-1 text-xs text-muted" role="status" aria-live="polite">
             {saveState === "saving" && (
@@ -204,15 +222,6 @@ function SettingsCard({
           </span>
         )}
       </div>
-      <p className="mb-4 text-xs text-muted">
-        Configure the smart bridges — the AI models powering Agriflow&apos;s data capture and InsightEngine predictions.
-      </p>
-
-      {!canManage && (
-        <p className="mb-3 rounded-lg bg-background px-3 py-2 text-xs text-muted">
-          Only farm managers can change these settings.
-        </p>
-      )}
       {status}
 
       <fieldset disabled={!canManage} className="mt-4 space-y-3 disabled:opacity-70">
