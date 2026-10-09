@@ -1,14 +1,13 @@
 import {
   AIConfigError,
   AIWarmingUpError,
-  buildSystemPrompt,
   streamChatCompletion,
+  withLanguage,
   type ChatMessage,
-  type LanguageCode,
 } from "@/lib/ai/natlas";
-import { getDashboardData, summarizeForAI } from "@/lib/dashboard";
-import { isLanguage } from "@/lib/languages";
-import { getAISettings } from "@/lib/settings";
+import { farmSystemPrompt } from "@/lib/ai/prompt";
+import { isReplyLanguage, type ReplyLanguage } from "@/lib/languages";
+import { getReplyLanguage } from "@/lib/settings";
 import { getContext } from "@/lib/auth";
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -36,7 +35,7 @@ function parseBody(body: unknown) {
     clean.push({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_LENGTH) });
   }
 
-  const lang: LanguageCode | null = isLanguage(language) ? language : null;
+  const lang: ReplyLanguage | null = isReplyLanguage(language) ? language : null;
   return { messages: clean, language: lang };
 }
 
@@ -50,11 +49,10 @@ export async function POST(request: Request) {
 
   try {
     // Farm context is loaded on the server so the client can't spoof it.
-    const language = parsed.language ?? getAISettings(ctx.farm.id).language;
-    const systemPrompt = buildSystemPrompt(summarizeForAI(getDashboardData(ctx)), language);
+    const language = parsed.language ?? getReplyLanguage(ctx.user.id, ctx.farm.id);
     const stream = await streamChatCompletion(
-      parsed.messages,
-      systemPrompt,
+      withLanguage(parsed.messages, language),
+      farmSystemPrompt(ctx),
       request.signal,
     );
     return new Response(stream, {

@@ -5,7 +5,7 @@ import { AIWorkspace } from "@/components/ai/ai-workspace";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { checkModelStatus, checkSpeechStatus, checkVoiceStatus, type ServiceStatus } from "@/lib/ai/status";
 import { hasRole, requireContext } from "@/lib/auth";
-import { getAISettings } from "@/lib/settings";
+import { getAISettings, getReplyLanguage } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "AI · Agriflow" };
 
@@ -22,6 +22,7 @@ async function AIContent() {
   return (
     <AIWorkspace
       settings={getAISettings(ctx.farm.id)}
+      replyLanguage={getReplyLanguage(ctx.user.id, ctx.farm.id)}
       canManage={hasRole(ctx, "manager")}
       voiceServer={Boolean(process.env.ASR_BASE_URL)}
       ttsServer={Boolean(process.env.TTS_BASE_URL)}

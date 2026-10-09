@@ -1,6 +1,8 @@
 import { getContext } from "@/lib/auth";
 import { isLanguage } from "@/lib/languages";
 
+// language: en | ha | ig | yo, or "auto" to let the speech server detect it.
+
 // AgriTalk voice input: forwards a recording to an OpenAI-compatible
 // speech-to-text server (the local `npm run asr` server, or a hosted one).
 
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
 
   const upstream = new FormData();
   upstream.append("file", file, `speech.${file.type.includes("ogg") ? "ogg" : file.type.includes("wav") ? "wav" : "webm"}`);
-  upstream.append("language", isLanguage(language) ? language : "en");
+  upstream.append("language", isLanguage(language) ? language : "auto");
   upstream.append("model", process.env.ASR_MODEL ?? "whisper-1");
 
   try {

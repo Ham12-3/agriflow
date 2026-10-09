@@ -79,12 +79,21 @@ Use made-up emails like `worker1@example.test`. Nothing is emailed.
 
 ### AI
 - [ ] On **AI**, the status list shows what's connected.
-- [ ] Ask "How is my farm doing this month?"; the answer uses your real numbers
-      (the first answer can take a minute while the model loads).
-- [ ] Change language to Yoruba, Hausa or Igbo and ask again.
+- [ ] Ask "How is my farm doing this month?"; the answer uses your real numbers.
+      Wait about 30 seconds after opening the AI page the first time (the model
+      loads in the background); after that answers start within a few seconds.
+- [ ] With **Auto language**, type a question in Yoruba, Hausa or Igbo; the answer
+      comes back in the same language, with that language's button highlighted.
+- [ ] Press **EN / HA / IG / YO** under an answer to switch its language; pressing
+      one you've already seen switches instantly.
+- [ ] Pick a language in the chat's language box, reload the page: it's still picked.
 - [ ] Tap the microphone, speak a question, and check it's transcribed correctly.
 - [ ] Press **Listen** on an answer. With `npm run tts` running it uses a Nigerian
-      voice, but expect about 1–2 minutes before it starts. **Stop** cuts it off.
+      voice in the language shown. "Preparing audio" counts up (about 30 seconds
+      for a short answer), then the whole answer plays without stopping.
+      **Stop** cuts it off.
+- [ ] On the AI page, pick a voice for each language and press **Try**.
+- [ ] Change a setting on the AI page; "Saved" appears without pressing a button.
 - [ ] As a worker, the AI doesn't reveal money figures.
 
 ### Phone-size screens

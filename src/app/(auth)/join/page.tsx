@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { JoinForm } from "@/components/auth/auth-forms";
 import { AuthPage } from "@/components/auth/auth-page";
 import { getContext } from "@/lib/auth";
-import { farmByJoinCode } from "@/lib/farms";
+import { farmByJoinCode, userCanAccessFarm } from "@/lib/farms";
 
 export const metadata: Metadata = { title: "Join a farm · Agriflow" };
 
@@ -24,5 +24,12 @@ async function Join({ searchParams }: { searchParams: Promise<Record<string, str
   const code = typeof raw === "string" ? raw.trim().toUpperCase().slice(0, 20) : "";
   const farm = code ? farmByJoinCode(code) : undefined;
   const ctx = await getContext();
-  return <JoinForm code={code} farmName={farm?.name ?? null} signedInAs={ctx ? ctx.user.email : null} />;
+  return (
+    <JoinForm
+      code={code}
+      farmName={farm?.name ?? null}
+      signedInAs={ctx ? ctx.user.email : null}
+      alreadyMember={Boolean(ctx && farm && userCanAccessFarm(ctx.user.id, farm.id))}
+    />
+  );
 }

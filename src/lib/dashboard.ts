@@ -53,7 +53,14 @@ export function summarizeForAI(data: DashboardData) {
     `Batch health: ${counts.healthy} healthy, ${counts.warning} warning, ${counts.critical} critical.`,
     `Active batches:\n${batchLines.join("\n") || "None"}`,
     `Inventory:\n${inventoryLines(farm.id) || "No items tracked."}`,
+    `Items that need attention now: ${attentionSummary(farm.id)}`,
   ].join("\n");
+}
+
+// Spelled out in one line: the model missed flags buried in the item list.
+function attentionSummary(farmId: number) {
+  const items = listItems(farmId).filter((i) => i.attentionReason);
+  return items.length ? items.map((i) => `${i.name} (${i.attentionReason!.toLowerCase()})`).join(", ") : "none";
 }
 
 function inventoryLines(farmId: number) {

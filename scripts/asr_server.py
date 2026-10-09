@@ -100,11 +100,14 @@ async def transcribe(
             if pipe is not None:
                 result = pipe({"raw": audio, "sampling_rate": 16000})
                 return {"text": result["text"].strip(), "engine": NATLAS_MODELS[lang]}
-            result = whisper_model().transcribe(
-                audio,
-                language=lang if lang in WHISPER_LANGUAGES else None,
-                fp16=False,
-            )
+            asr = whisper_model()
+            if lang not in WHISPER_LANGUAGES:
+                # "auto" (or Igbo, which Whisper lacks): pick the most likely of
+                # the app's languages, never any other language Whisper knows.
+                mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(audio), asr.dims.n_mels).to(asr.device)
+                _, probs = asr.detect_language(mel)
+                lang = max(WHISPER_LANGUAGES, key=lambda code: probs.get(code, 0))
+            result = asr.transcribe(audio, language=lang, fp16=False)
             return {"text": result["text"].strip(), "engine": f"whisper-{WHISPER_MODEL}"}
     except HTTPException:
         raise

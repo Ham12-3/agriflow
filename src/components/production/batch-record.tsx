@@ -205,7 +205,7 @@ export function BatchRecord({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="border-y border-line text-left text-[11px] uppercase tracking-[0.06em] text-muted">

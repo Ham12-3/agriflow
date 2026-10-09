@@ -126,12 +126,24 @@ export function JoinForm({
   code,
   farmName,
   signedInAs,
+  alreadyMember = false,
 }: {
   code: string;
   farmName: string | null;
   signedInAs: string | null;
+  alreadyMember?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(joinFarmAction, { ok: false });
+  if (alreadyMember && farmName) {
+    return (
+      <div className="space-y-4">
+        <Heading eyebrow="Join a farm" title={`You're already in ${farmName}`} subtitle={`Signed in as ${signedInAs}.`} />
+        <Link href="/" className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-foreground text-sm font-medium text-white">
+          Go to dashboard <ArrowRight className="size-4" />
+        </Link>
+      </div>
+    );
+  }
   return (
     <form action={formAction} className="space-y-4">
       <Heading

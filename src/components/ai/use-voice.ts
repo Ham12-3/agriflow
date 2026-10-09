@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { SPEECH_TAGS, type LanguageCode } from "@/lib/languages";
+import { SPEECH_TAGS, type LanguageCode, type ReplyLanguage } from "@/lib/languages";
 
 // ---------- Speech to text (AgriTalk) ----------
 
@@ -41,7 +41,7 @@ export function useVoiceInput({
   useServer,
   onText,
 }: {
-  language: LanguageCode;
+  language: ReplyLanguage; // "auto": the speech server detects the language
   useServer: boolean;
   onText: (text: string) => void;
 }) {
@@ -75,7 +75,8 @@ export function useVoiceInput({
       return;
     }
     const r = new Recognition();
-    r.lang = SPEECH_TAGS[language];
+    // Browsers can't detect the language, so "auto" listens for Nigerian English.
+    r.lang = SPEECH_TAGS[language === "auto" ? "en" : language];
     r.interimResults = false;
     r.onresult = (e) => {
       const text = Array.from(e.results).map((res) => res[0].transcript).join(" ").trim();
@@ -179,140 +180,225 @@ function pickVoice(language: LanguageCode) {
   );
 }
 
-// Spoken replies. With the YarnGPT server (`npm run tts`) answers are spoken
-// in a Nigerian voice in English, Yoruba, Hausa or Igbo; otherwise the
-// device's own voice is used. Answers are split into ~25-word chunks: the
-// next chunk is generated while the current one plays.
+// Spoken replies, one message at a time. With the YarnGPT server (`npm run tts`)
+// replies are spoken in a Nigerian voice in English, Hausa, Igbo or Yoruba;
+// otherwise the device's own voice is used.
+//
+// YarnGPT is slower than real time on a laptop, so playing each sentence as
+// soon as it's ready leaves gaps mid-answer. Instead, sentences are generated
+// a few at a time and playback starts once the rest will be ready before it's
+// needed; the clips are then joined on one timeline with short pauses.
 
-const CHUNK_WORDS = 25;
-const FIRST_CHUNK_WORDS = 10; // short, so the first audio arrives sooner
+const PARALLEL = 3; // matches the voice server's Ollama (OLLAMA_NUM_PARALLEL)
+const MAX_WORDS = 30;
+const PAUSE = 0.25; // seconds between sentences
 
-export function chunkText(text: string) {
+/** Splits text into sentences (long ones at commas), never mid-phrase. */
+export function splitSentences(text: string) {
   const sentences = text
     .replace(/[*_#`>|]/g, " ")
     .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const chunks: string[] = [];
-  let current: string[] = [];
-  const limit = () => (chunks.length ? CHUNK_WORDS : FIRST_CHUNK_WORDS);
+    .map((s) => s.replace(/^\s*[-•\d]+[.)]?\s+/, "").trim())
+    .filter((s) => /\p{L}/u.test(s));
+  const parts: string[] = [];
   for (const sentence of sentences) {
-    const words = sentence.split(/\s+/);
-    if (current.length && current.length + words.length > limit()) {
-      chunks.push(current.join(" "));
-      current = [];
-    }
-    for (const word of words) {
-      current.push(word);
-      if (current.length >= limit()) {
-        chunks.push(current.join(" "));
+    let current: string[] = [];
+    for (const phrase of sentence.split(/(?<=[,;:])\s+/)) {
+      const words = phrase.split(/\s+/);
+      if (current.length && current.length + words.length > MAX_WORDS) {
+        parts.push(current.join(" "));
         current = [];
       }
+      for (let i = 0; i < words.length; i += MAX_WORDS) current.push(...words.slice(i, i + MAX_WORDS));
     }
+    if (current.length) parts.push(current.join(" "));
   }
-  if (current.length) chunks.push(current.join(" "));
-  return chunks;
+  // Very short fragments ("Yes.") sound clipped on their own; join them to the next.
+  const merged: string[] = [];
+  for (const part of parts) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.split(/\s+/).length < 3) merged[merged.length - 1] = `${prev} ${part}`;
+    else merged.push(part);
+  }
+  return merged;
 }
 
-function speakInBrowser(text: string, language: LanguageCode) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = pickVoice(language);
-  if (voice) utterance.voice = voice;
-  utterance.lang = voice?.lang ?? SPEECH_TAGS[language];
-  utterance.rate = 0.95;
-  utterance.onend = utterance.onerror = () => setSpeaking(false);
-  setSpeaking(true);
-  window.speechSynthesis.speak(utterance);
-}
+// Which message is being read, and whether its audio is still being made.
+export type Speech = { id: string | null; phase: "preparing" | "playing" | null; progress?: number };
 
-// Shared playback state, so any chat can show a Stop button.
-let speaking = false;
+let speech: Speech = { id: null, phase: null };
 let session = 0;
 let controller: AbortController | null = null;
-let audio: HTMLAudioElement | null = null;
-let finishCurrent: (() => void) | null = null;
+let audioCtx: AudioContext | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
 const listeners = new Set<() => void>();
+const IDLE: Speech = { id: null, phase: null };
 
-function setSpeaking(value: boolean) {
-  speaking = value;
+function setSpeech(next: Speech) {
+  if (next.id === speech.id && next.phase === speech.phase && next.progress === speech.progress) return;
+  speech = next;
   listeners.forEach((l) => l());
 }
 
-export function useSpeaking() {
+export function useSpeech() {
   return useSyncExternalStore(
     (l) => {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    () => speaking,
-    () => false,
+    () => speech,
+    () => IDLE,
   );
 }
 
-function play(blob: Blob) {
-  return new Promise<void>((resolve) => {
-    const url = URL.createObjectURL(blob);
-    audio = new Audio(url);
-    const done = () => {
-      URL.revokeObjectURL(url);
-      finishCurrent = null;
-      resolve();
-    };
-    finishCurrent = done;
-    audio.onended = done;
-    audio.onerror = done;
-    audio.play().catch(done);
-  });
+function speakInBrowser(id: string, text: string, language: LanguageCode) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return setSpeech(IDLE);
+  const utterance = new SpeechSynthesisUtterance(text);
+  const voice = pickVoice(language);
+  if (voice) utterance.voice = voice;
+  utterance.lang = voice?.lang ?? SPEECH_TAGS[language];
+  utterance.rate = 0.95;
+  utterance.onend = utterance.onerror = () => {
+    if (speech.id === id) setSpeech(IDLE);
+  };
+  setSpeech({ id, phase: "playing" });
+  window.speechSynthesis.speak(utterance);
 }
 
-export async function speak(text: string, language: LanguageCode, { yarngpt = false } = {}) {
+/** Reads one message aloud (stopping anything else that is playing). */
+export function speak(
+  id: string,
+  text: string,
+  language: LanguageCode,
+  { yarngpt = false, voice }: { yarngpt?: boolean; voice?: string } = {},
+) {
   stopSpeaking();
-  if (!yarngpt) return speakInBrowser(text, language);
+  if (!yarngpt || typeof AudioContext === "undefined") return speakInBrowser(id, text, language);
 
-  const id = ++session;
+  const mine = ++session;
+  const ctx = new AudioContext(); // created during the click, so the browser allows playback
+  audioCtx = ctx;
   controller = new AbortController();
   const signal = controller.signal;
-  const chunks = chunkText(text);
-  const fetchChunk = async (chunk: string) => {
-    const res = await fetch("/api/ai/speak", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: chunk, language }),
-      signal,
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    return res.blob();
-  };
+  const parts = splitSentences(text);
+  if (!parts.length) return;
+  const words = parts.map((p) => p.split(/\s+/).length);
+  const totalWords = words.reduce((a, b) => a + b, 0);
+  const ready: (AudioBuffer | undefined)[] = [];
+  const began = performance.now();
+  let fetched = 0;
+  let scheduled = 0; // parts placed on the timeline
+  let playhead = 0; // when the scheduled audio ends (AudioContext time)
+  let started = false;
+  let failedAt: number | null = null;
+  const live = () => mine === session;
 
-  setSpeaking(true);
-  let next = chunks.length ? fetchChunk(chunks[0]) : null;
-  for (let i = 0; next && i < chunks.length; i++) {
-    let blob: Blob;
-    try {
-      blob = await next;
-    } catch {
-      // Server busy or down: say the rest with the device voice.
-      if (id === session && !signal.aborted) speakInBrowser(chunks.slice(i).join(" "), language);
+  setSpeech({ id, phase: "preparing", progress: 0 });
+
+  const finish = () => {
+    if (!live()) return;
+    if (failedAt !== null && scheduled < parts.length) {
+      // Voice server stopped part-way: say the rest with the device voice.
+      void ctx.close();
+      speakInBrowser(id, parts.slice(scheduled).join(" "), language);
       return;
     }
-    if (id !== session) return;
-    next = i + 1 < chunks.length ? fetchChunk(chunks[i + 1]) : null;
-    next?.catch(() => {}); // handled when awaited
-    await play(blob);
-    if (id !== session) return;
-  }
-  setSpeaking(false);
+    stopSpeaking();
+  };
+
+  const schedule = () => {
+    while (ready[scheduled]) {
+      const source = ctx.createBufferSource();
+      source.buffer = ready[scheduled]!;
+      source.connect(ctx.destination);
+      const at = Math.max(playhead, ctx.currentTime + 0.05);
+      source.start(at);
+      playhead = at + source.buffer.duration + PAUSE;
+      scheduled++;
+      const last = scheduled;
+      source.onended = () => {
+        // Ended with nothing more queued: either all done, or waiting/failed.
+        if (live() && last === scheduled && (scheduled === parts.length || failedAt !== null)) finish();
+      };
+    }
+  };
+
+  // Start once the audio ready so far lasts longer than making the rest will take.
+  const readyToStart = () => {
+    if (ready.length === parts.length && ready.every(Boolean)) return true;
+    let buffered = 0;
+    let doneWords = 0;
+    let doneAudio = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const b = ready[i];
+      if (!b) continue;
+      doneWords += words[i];
+      doneAudio += b.duration + PAUSE;
+    }
+    for (let i = 0; ready[i]; i++) buffered += ready[i]!.duration + PAUSE;
+    if (!buffered || !doneWords) return false;
+    const elapsed = (performance.now() - began) / 1000;
+    const rate = doneAudio / elapsed; // seconds of audio made per second
+    const remaining = ((totalWords - doneWords) * doneAudio) / doneWords;
+    return buffered > (remaining / rate) * 1.15 + 1;
+  };
+
+  const onReady = () => {
+    if (!live()) return;
+    const doneWords = parts.reduce((sum, _, i) => sum + (ready[i] ? words[i] : 0), 0);
+    if (!started && readyToStart()) {
+      started = true;
+      void ctx.resume();
+      playhead = ctx.currentTime + 0.05;
+    }
+    if (started) schedule();
+    else setSpeech({ id, phase: "preparing", progress: Math.round((doneWords / totalWords) * 100) });
+  };
+
+  const worker = async () => {
+    while (live() && failedAt === null && fetched < parts.length) {
+      const i = fetched++;
+      try {
+        const res = await fetch("/api/ai/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: parts[i], language, voice }),
+          signal,
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        ready[i] = await ctx.decodeAudioData(await res.arrayBuffer());
+        onReady();
+      } catch {
+        if (!live() || signal.aborted) return;
+        failedAt = failedAt === null ? i : Math.min(failedAt, i);
+        if (!started) {
+          void ctx.close();
+          return speakInBrowser(id, text, language);
+        }
+        if (playhead <= ctx.currentTime) finish();
+      }
+    }
+  };
+  for (let n = 0; n < Math.min(PARALLEL, parts.length); n++) void worker();
+
+  // Shows "preparing" again if playback catches up with generation.
+  timer = setInterval(() => {
+    if (!live() || !started) return;
+    const waiting = scheduled < parts.length && ctx.currentTime >= playhead - PAUSE;
+    setSpeech({ id, phase: waiting ? "preparing" : "playing" });
+  }, 250);
 }
 
 export function stopSpeaking() {
   session++;
   controller?.abort();
   controller = null;
-  audio?.pause();
-  finishCurrent?.();
+  if (timer) clearInterval(timer);
+  timer = null;
+  void audioCtx?.close().catch(() => {});
+  audioCtx = null;
   if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
-  if (speaking) setSpeaking(false);
+  if (speech.id) setSpeech(IDLE);
 }
 
 // Whether the device has a voice for this language (Hausa/Igbo/Yoruba often don't).

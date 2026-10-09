@@ -147,7 +147,7 @@ function EfficiencySection({ rows, className }: { rows: Analytics["efficiency"];
       {rows.length === 0 ? (
         <p className="text-sm text-muted">Add a batch in Production to see efficiency.</p>
       ) : (
-        <div className="-mx-5 overflow-x-auto">
+        <div className="relative -mx-5 overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-y border-line text-left text-[11px] uppercase tracking-[0.06em] text-muted">

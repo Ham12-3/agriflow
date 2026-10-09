@@ -1,7 +1,8 @@
 import "server-only";
 
 import { getDb } from "./db";
-import { isLanguage, type LanguageCode } from "./languages";
+import { isReplyLanguage, type ReplyLanguage } from "./languages";
+import { DEFAULT_VOICES, sanitizeVoices, type VoiceChoice } from "./voices";
 
 // Small key/value store for settings (JSON values). Farm settings use
 // farmKey(farmId, name) so each farm has its own.
@@ -39,8 +40,8 @@ export function deleteSetting(key: string) {
 
 export type AISettings = {
   voiceInput: boolean; // AgriTalk: microphone button in the assistant
-  speakReplies: boolean; // read answers aloud
-  language: LanguageCode; // default reply / speech language
+  language: ReplyLanguage; // farm default for reply language; each person can pick their own
+  voices: VoiceChoice; // YarnGPT voice for each language
   // InsightEngine thresholds
   feedVarianceTolerancePct: number; // flag a day's feed this far from the 7-day average
   predictiveHorizonDays: number; // warn when stock runs out within this many days
@@ -48,8 +49,8 @@ export type AISettings = {
 
 export const AI_DEFAULTS: AISettings = {
   voiceInput: true,
-  speakReplies: false,
-  language: "en",
+  language: "auto",
+  voices: DEFAULT_VOICES,
   feedVarianceTolerancePct: 10,
   predictiveHorizonDays: 14,
 };
@@ -73,11 +74,23 @@ export function saveAISettings(farmId: number, next: Partial<AISettings>) {
   return merged;
 }
 
+// Each person's own reply language, picked in the chat; falls back to the farm default.
+const userKey = (userId: number) => `user:${userId}:replyLanguage`;
+
+export function getReplyLanguage(userId: number, farmId: number): ReplyLanguage {
+  const own = getSetting<unknown>(userKey(userId), null);
+  return isReplyLanguage(own) ? own : getAISettings(farmId).language;
+}
+
+export function saveReplyLanguage(userId: number, language: ReplyLanguage) {
+  setSetting(userKey(userId), language);
+}
+
 function sanitize(s: AISettings): AISettings {
   return {
     voiceInput: Boolean(s.voiceInput),
-    speakReplies: Boolean(s.speakReplies),
-    language: isLanguage(s.language) ? s.language : AI_DEFAULTS.language,
+    language: isReplyLanguage(s.language) ? s.language : AI_DEFAULTS.language,
+    voices: sanitizeVoices(s.voices),
     feedVarianceTolerancePct: clamp(
       Number(s.feedVarianceTolerancePct) || AI_DEFAULTS.feedVarianceTolerancePct,
       AI_LIMITS.feedVarianceTolerancePct,

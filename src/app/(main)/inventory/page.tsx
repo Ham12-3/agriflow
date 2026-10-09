@@ -17,5 +17,8 @@ export default function InventoryPage() {
 
 async function Inventory() {
   const ctx = await requireContext();
-  return <InventoryView items={listItems(ctx.farm.id)} canManage={hasRole(ctx, "manager")} />;
+  const canManage = hasRole(ctx, "manager");
+  // Workers don't see money, so costs aren't sent to their browser at all.
+  const items = listItems(ctx.farm.id).map((i) => (canManage ? i : { ...i, unitCost: 0 }));
+  return <InventoryView items={items} canManage={canManage} />;
 }

@@ -1,35 +1,38 @@
 "use client";
 
-import { Camera, Gauge, Mic, Sparkles, Volume2 } from "lucide-react";
-import { useState, useTransition, type ReactNode } from "react";
+import { Camera, Check, Gauge, LoaderCircle, Mic, Sparkles, Square, Volume2 } from "lucide-react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { saveAISettingsAction } from "@/app/(main)/ai/actions";
-import { Button, Switch } from "@/components/ui";
-import { LANGUAGES, type LanguageCode } from "@/lib/languages";
-import { ChatView, LanguageSelect, useChat, type VoicePrefs } from "./chat";
-import { useHasVoice } from "./use-voice";
+import { Switch } from "@/components/ui";
+import { LANGUAGES, REPLY_LANGUAGES, type LanguageCode, type ReplyLanguage } from "@/lib/languages";
+import { VOICES, VOICE_SAMPLES, type VoiceChoice } from "@/lib/voices";
+import { ChatView, LanguageSelect, useChat } from "./chat";
+import { speak, stopSpeaking, useSpeech } from "./use-voice";
 
 type Settings = {
   voiceInput: boolean;
-  speakReplies: boolean;
-  language: LanguageCode;
+  language: ReplyLanguage;
+  voices: VoiceChoice;
   feedVarianceTolerancePct: number;
   predictiveHorizonDays: number;
 };
 
 export function AIWorkspace({
   settings,
+  replyLanguage,
   canManage,
   voiceServer,
   ttsServer,
   status,
 }: {
   settings: Settings;
+  replyLanguage: ReplyLanguage;
   voiceServer: boolean;
   ttsServer: boolean;
   status: ReactNode;
   canManage: boolean;
 }) {
-  const chat = useChat({ ...settings, voiceServer, ttsServer });
+  const chat = useChat({ voiceInput: settings.voiceInput, language: replyLanguage, voiceServer, ttsServer });
 
   return (
     <>
@@ -62,7 +65,7 @@ export function AIWorkspace({
           status={status}
           canManage={canManage}
           ttsServer={ttsServer}
-          onSaved={(s) => chat.applyPrefs({ ...s, voiceServer, ttsServer } satisfies VoicePrefs)}
+          onSaved={(s) => chat.applyPrefs({ voiceInput: s.voiceInput })}
         />
       </div>
     </>
@@ -151,37 +154,54 @@ function SettingsCard({
   canManage: boolean;
 }) {
   const [s, setS] = useState(settings);
-  const voiceAvailable = useHasVoice(s.language);
-  const [pending, startTransition] = useTransition();
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const dirty = JSON.stringify(s) !== JSON.stringify(settings) && savedAt === null;
-  const set = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [, startTransition] = useTransition();
+  const queued = useRef<Partial<Settings>>({});
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Every change saves on its own; sliders wait until you stop dragging.
+  const set = <K extends keyof Settings>(key: K, value: Settings[K], delay = 0) => {
     setS((prev) => ({ ...prev, [key]: value }));
-    setSavedAt(null);
+    queued.current = { ...queued.current, [key]: value };
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const next = queued.current;
+      queued.current = {};
+      setSaveState("saving");
+      startTransition(async () => {
+        try {
+          const saved = await saveAISettingsAction(next);
+          if (!Object.keys(queued.current).length) setS(saved);
+          setSaveState("saved");
+          onSaved(saved);
+        } catch {
+          setSaveState("error");
+        }
+      });
+    }, delay);
   };
 
   return (
-    <form
-      className="h-fit rounded-2xl border border-line bg-card p-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const form = new FormData(e.currentTarget);
-        startTransition(async () => {
-          const saved = await saveAISettingsAction(form);
-          setS(saved);
-          setSavedAt(Date.now());
-          onSaved(saved);
-        });
-      }}
-    >
+    <div className="h-fit rounded-2xl border border-line bg-card p-5">
       <div className="mb-1 flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-base font-semibold">
           <Sparkles className="size-4" /> AI Settings
         </h3>
         {canManage && (
-        <Button type="submit" disabled={pending || (!dirty && savedAt !== null)} className="h-8 px-3 text-xs">
-          {pending ? "Saving…" : savedAt ? "Saved" : "Save Changes"}
-        </Button>
+          <span className="flex items-center gap-1 text-xs text-muted" role="status" aria-live="polite">
+            {saveState === "saving" && (
+              <>
+                <LoaderCircle className="size-3.5 animate-spin" /> Saving…
+              </>
+            )}
+            {saveState === "saved" && (
+              <>
+                <Check className="size-3.5 text-good" /> Saved
+              </>
+            )}
+            {saveState === "error" && <span className="text-bad">Couldn&apos;t save. Try again.</span>}
+            {saveState === "idle" && "Changes save automatically"}
+          </span>
         )}
       </div>
       <p className="mb-4 text-xs text-muted">
@@ -217,43 +237,31 @@ function SettingsCard({
           />
         </SettingRow>
 
-        <SettingRow
-          icon={<Volume2 className="size-4" />}
-          title="Read replies aloud"
-          description={
-            ttsServer
-              ? "Speak each answer in a Nigerian voice (YarnGPT) in English, Hausa, Igbo or Yoruba."
-              : s.speakReplies && !voiceAvailable
-                ? `This device has no ${LANGUAGES[s.language]} voice, so replies may be read with an English voice. Start the YarnGPT voice server for Nigerian voices.`
-                : "Speak each answer using your device's voice. Start the YarnGPT voice server for Nigerian voices."
-          }
-        >
-          <Switch
-            name="speakReplies"
-            checked={s.speakReplies}
-            onChange={(v) => set("speakReplies", v)}
-            label="Read replies aloud"
-          />
-        </SettingRow>
-
         <label className="flex items-center justify-between gap-3 rounded-xl border border-line p-4">
           <span>
-            <span className="block text-sm font-semibold">Default language</span>
-            <span className="text-xs text-muted">For replies and voice input.</span>
+            <span className="block text-sm font-semibold">Default reply language</span>
+            <span className="text-xs text-muted">For people who haven&apos;t picked their own in the chat.</span>
           </span>
           <select
             name="language"
             value={s.language}
-            onChange={(e) => set("language", e.target.value as LanguageCode)}
+            onChange={(e) => set("language", e.target.value as ReplyLanguage)}
             className="rounded-lg border border-line bg-background px-2 py-1.5 text-sm outline-none"
           >
-            {(Object.keys(LANGUAGES) as LanguageCode[]).map((code) => (
+            {(Object.keys(REPLY_LANGUAGES) as ReplyLanguage[]).map((code) => (
               <option key={code} value={code}>
-                {LANGUAGES[code]}
+                {REPLY_LANGUAGES[code]}
               </option>
             ))}
           </select>
         </label>
+
+        <VoicesSetting
+          voices={s.voices}
+          ttsServer={ttsServer}
+          canManage={canManage}
+          onChange={(voices) => set("voices", voices)}
+        />
 
         <div className="rounded-xl border border-line p-4">
           <p className="flex items-center gap-2 text-sm font-semibold">
@@ -271,7 +279,7 @@ function SettingsCard({
               min={5}
               max={50}
               format={(v) => `±${v}%`}
-              onChange={(v) => set("feedVarianceTolerancePct", v)}
+              onChange={(v) => set("feedVarianceTolerancePct", v, 600)}
             />
             <Slider
               name="predictiveHorizonDays"
@@ -281,11 +289,81 @@ function SettingsCard({
               min={3}
               max={30}
               format={(v) => `${v} days`}
-              onChange={(v) => set("predictiveHorizonDays", v)}
+              onChange={(v) => set("predictiveHorizonDays", v, 600)}
             />
           </div>
         </div>
       </fieldset>
-    </form>
+    </div>
+  );
+}
+
+function VoicesSetting({
+  voices,
+  ttsServer,
+  canManage,
+  onChange,
+}: {
+  voices: VoiceChoice;
+  ttsServer: boolean;
+  canManage: boolean;
+  onChange: (voices: VoiceChoice) => void;
+}) {
+  const speech = useSpeech();
+  return (
+    <div className="rounded-xl border border-line p-4">
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        <Volume2 className="size-4" /> Voices for spoken replies
+      </p>
+      <p className="mb-3 mt-0.5 text-xs text-muted">
+        {ttsServer
+          ? "Nigerian YarnGPT voices. Press Try to hear one (it takes a few seconds to prepare)."
+          : "Start the YarnGPT voice server (npm run tts) to use these voices; until then replies use your device's voice."}
+      </p>
+      <div className="space-y-2">
+        {(Object.keys(LANGUAGES) as LanguageCode[]).map((lang) => {
+          const sampleId = `voice-sample-${lang}`;
+          const playing = speech.id === sampleId;
+          return (
+            <div key={lang} className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-xs font-medium">{LANGUAGES[lang]}</span>
+              <select
+                value={voices[lang]}
+                disabled={!canManage}
+                onChange={(e) => onChange({ ...voices, [lang]: e.target.value })}
+                aria-label={`${LANGUAGES[lang]} voice`}
+                className="min-w-0 flex-1 rounded-lg border border-line bg-background px-2 py-1.5 text-xs outline-none"
+              >
+                {VOICES[lang].map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!ttsServer}
+                onClick={() =>
+                  playing
+                    ? stopSpeaking()
+                    : speak(sampleId, VOICE_SAMPLES[lang], lang, { yarngpt: true, voice: voices[lang] })
+                }
+                className="flex w-16 shrink-0 items-center justify-center gap-1 rounded-lg border border-line px-2 py-1.5 text-xs font-medium hover:bg-background disabled:opacity-40"
+                aria-label={playing ? "Stop" : `Try the ${LANGUAGES[lang]} voice`}
+              >
+                {playing && speech.phase === "preparing" ? (
+                  <LoaderCircle className="size-3 animate-spin" />
+                ) : playing ? (
+                  <Square className="size-3" />
+                ) : (
+                  <Volume2 className="size-3" />
+                )}
+                {playing ? "Stop" : "Try"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

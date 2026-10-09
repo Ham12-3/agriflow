@@ -20,7 +20,10 @@ export function FarmsList({ farms, activeFarmId }: { farms: FarmCard[]; activeFa
   }, [farms, query]);
 
   const livestock = farms.reduce((s, f) => s + f.livestock, 0);
-  const revenue = farms.reduce((s, f) => s + f.revenue, 0);
+  // Money only for farms where this person is a manager or owner.
+  const withMoney = farms.filter((f) => f.revenue !== null);
+  const revenue = withMoney.reduce((s, f) => s + (f.revenue ?? 0), 0);
+  const money = (n: number | null) => (n === null ? "—" : formatNaira(n));
 
   return (
     <>
@@ -38,7 +41,11 @@ export function FarmsList({ farms, activeFarmId }: { farms: FarmCard[]; activeFa
         {[
           { label: "My farms", value: String(farms.length), caption: "Farms in your portfolio" },
           { label: "Livestock count", value: livestock.toLocaleString("en-NG"), caption: "Head" },
-          { label: "Total revenue", value: formatNaira(revenue), caption: "Across all farms, this year" },
+          {
+            label: "Total revenue",
+            value: withMoney.length ? formatNaira(revenue) : "—",
+            caption: withMoney.length ? "Across your farms, this year" : "Only managers can see money",
+          },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl border border-line bg-card p-5">
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">{s.label}</p>
@@ -65,7 +72,8 @@ export function FarmsList({ farms, activeFarmId }: { farms: FarmCard[]; activeFa
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {shown.map((f) => {
-          const share = revenue > 0 ? Math.round((f.revenue / revenue) * 100) : 0;
+          const share = revenue > 0 && f.revenue !== null ? Math.round((f.revenue / revenue) * 100) : null;
+          const net = f.revenue === null || f.expenses === null ? null : f.revenue - f.expenses;
           return (
             <article key={f.id} className="flex flex-col rounded-2xl border border-line bg-card p-5">
               <div className="flex items-center gap-3">
@@ -89,18 +97,18 @@ export function FarmsList({ farms, activeFarmId }: { farms: FarmCard[]; activeFa
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.08em] text-muted">Revenue</p>
-                  <p className="font-semibold">{formatNaira(f.revenue)}</p>
+                  <p className="font-semibold">{money(f.revenue)}</p>
                 </div>
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.08em] text-muted">Net profit</p>
-                  <p className={`font-semibold ${f.revenue - f.expenses < 0 ? "text-bad" : ""}`}>{formatNaira(f.revenue - f.expenses)}</p>
+                  <p className={`font-semibold ${net !== null && net < 0 ? "text-bad" : ""}`}>{money(net)}</p>
                 </div>
               </div>
               <div className="mt-3 flex justify-between border-t border-line pt-3 text-xs text-muted">
                 <span>
                   {f.users} {f.users === 1 ? "user" : "users"} · {f.manager ? `Manager: ${f.manager}` : "No manager"}
                 </span>
-                <span>{share}% of revenue</span>
+                {share !== null && <span>{share}% of revenue</span>}
               </div>
               <form action={switchFarmAction.bind(null, f.id)} className="mt-4">
                 <button

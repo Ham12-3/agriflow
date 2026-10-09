@@ -46,3 +46,6 @@ next-env.d.ts
 
 # YarnGPT text-to-speech environment and models
 /.venv-tts/
+
+# Recorded demo videos
+/demo/

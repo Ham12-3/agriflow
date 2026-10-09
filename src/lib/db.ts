@@ -11,7 +11,9 @@ import { migrate } from "./schema";
 // farm_id; callers pass the signed-in user's active farm. The schema maps 1:1
 // onto Postgres/Supabase when the app moves to a hosted database.
 
-const DB_PATH = path.join(process.cwd(), ".data", "agriflow.db");
+// AGRIFLOW_DB_PATH puts the database elsewhere (e.g. a mounted disk in
+// production, or a scratch copy for testing).
+const DB_PATH = process.env.AGRIFLOW_DB_PATH || path.join(process.cwd(), ".data", "agriflow.db");
 
 const globalForDb = globalThis as unknown as { agriflowDb?: DatabaseSync; agriflowMigrated?: boolean };
 

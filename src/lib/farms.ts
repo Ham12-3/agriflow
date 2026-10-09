@@ -22,8 +22,9 @@ export type FarmCard = {
   livestock: number;
   batches: number;
   users: number;
-  revenue: number; // this year
-  expenses: number; // this year
+  // This year; null on farms where this person is a worker (workers don't see money).
+  revenue: number | null;
+  expenses: number | null;
 };
 
 export function listUserFarms(userId: number): FarmCard[] {
@@ -41,13 +42,13 @@ export function listUserFarms(userId: number): FarmCard[] {
   const yearStart = `${farmToday().year}-01-01`;
   return rows.map((r) => {
     const batches = listBatches(r.id);
-    const totals = totalsSince(r.id, yearStart);
+    const totals = r.role === "worker" ? null : totalsSince(r.id, yearStart);
     return {
       ...r,
       livestock: batches.reduce((s, b) => s + b.currentCount, 0),
       batches: batches.length,
-      revenue: totals.revenue,
-      expenses: totals.expenses,
+      revenue: totals?.revenue ?? null,
+      expenses: totals?.expenses ?? null,
     };
   });
 }

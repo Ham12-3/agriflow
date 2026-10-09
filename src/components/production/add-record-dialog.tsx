@@ -88,7 +88,7 @@ export function AddRecordDialog({
             hint="Average gain per animal."
           />
           <Field label="Medication" name="medication" placeholder="None" />
-          <Field label="Recorded by" name="recordedBy" required placeholder="Your name" />
+          <Field label="Recorded by" name="recordedBy" placeholder="You (leave blank)" hint="Leave blank to use your name." />
           <Field label="Notes" name="notes" className="sm:col-span-2" placeholder="Healthy, normal behaviour" />
         </div>
         <datalist id="feed-options">

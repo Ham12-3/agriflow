@@ -15,7 +15,9 @@ npm run dev
 
 Open http://localhost:3000. Requires Node 22+ (the app uses Node's built-in
 SQLite for local data, stored in `.data/agriflow.db` and seeded with sample batches
-on first run; delete that file to reset).
+on first run; delete that file to reset). Set `AGRIFLOW_DB_PATH` to keep the
+database somewhere else, e.g. a persistent disk in production or a scratch copy
+for testing.
 
 ## Accounts, farms and roles
 
@@ -41,23 +43,54 @@ you and transcribes on your machine. Without it, the app falls back to the
 browser's own speech recognition (Chrome/Edge). The AI page (`/ai`) has the chat,
 voice settings and InsightEngine thresholds.
 
+### Languages
+
+- **Reply language:** the picker in the chat ("Auto language" by default) answers
+  in the language of your question, or always in English, Hausa, Igbo or Yoruba.
+  Your choice is saved for your account as soon as you change it.
+- **Every answer** has its own **EN / HA / IG / YO** buttons to show it in another
+  language (translated once, then instant) and its own **Listen** button, which
+  reads the version on screen in that language.
+- Settings on the AI page save automatically.
+
+### Speed (Ollama)
+
+With Ollama, the app keeps N-ATLaS loaded for an hour (`LLM_KEEP_ALIVE`) and
+warms it up as soon as a chat opens, so answers start in about 5 seconds
+instead of a minute or more. On a laptop CPU, N-ATLaS writes about 3–4 words per
+second. Translating between Hausa, Igbo and Yoruba goes through English for
+better results, so it takes about twice as long as translating to English.
+
 ### Spoken replies (YarnGPT)
 
 ```bash
-npm run tts:setup   # one time: Python env + YarnGPT2 + WavTokenizer (~2.5 GB)
-npm run tts         # local text-to-speech server on :8002
+npm run tts:setup   # one time: Python env, YarnGPT2 for Ollama, WavTokenizer (~2 GB)
+npm run tts         # local text-to-speech server on :8002 (needs Ollama running)
 ```
 
-With `TTS_BASE_URL` set, "Read replies aloud" and **Listen** speak answers with
+With `TTS_BASE_URL` set, **Listen** speaks answers with
 [YarnGPT2](https://huggingface.co/saheedniyi/YarnGPT2) (Apache-2.0): Nigerian
-voices in English, Hausa, Igbo and Yoruba. Answers are split into short chunks,
-and the next one is generated while the current one plays. If the server is off
-or busy, the device's own voice takes over.
+voices in English, Hausa, Igbo and Yoruba. If the server is off or fails, the
+device's own voice takes over.
 
-YarnGPT is slow on a laptop CPU: on an i5-1135G7 one second of speech takes
-roughly 15–20 seconds to generate, so the first words of a reply arrive after
-30–60 seconds. It runs in near real time on an NVIDIA GPU. Remove `TTS_BASE_URL`
-to go back to instant device voices.
+How it works:
+
+- The speech model runs in Ollama as `agriflow-yarngpt2` (the GGUF build from
+  mradermacher/YarnGPT2-GGUF), 4–5 times faster than PyTorch on a CPU.
+  `npm run tts` starts its own Ollama on port 11435 that makes 3 sentences at
+  once (`TTS_PARALLEL`), about twice the throughput of one at a time.
+- Answers are split only at sentence ends (or commas in long sentences).
+  Playback waits until the rest of the answer will be ready before it's needed,
+  then plays every sentence back to back with a short pause, so speech doesn't
+  stop mid-answer. The button shows "Preparing audio" with a percentage.
+- **Voices:** pick one per language on the AI page (**Try** plays a sample).
+  Only the clearest, most stable YarnGPT voices are offered: in tests, the
+  English voices joke, emma, umar, remi and tayo were often unintelligible.
+
+On an i5-1135G7 laptop, speech is generated about 2–3 times slower than it is
+spoken, so a 3-sentence answer waits about 30 seconds and a 7-sentence answer
+about 75 seconds before playing straight through. On an NVIDIA GPU it's about
+real time. Remove `TTS_BASE_URL` to go back to instant device voices.
 
 ## Project layout
 

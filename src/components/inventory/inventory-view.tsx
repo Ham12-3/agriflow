@@ -174,10 +174,12 @@ function ItemCard({ item, canManage }: { item: InventoryItem; canManage: boolean
         <span className="w-14 text-sm text-muted">{item.unit}</span>
       </label>
 
-      <p className="mt-4 text-sm">
-        Cost: <span className="font-semibold">{formatNaira(Math.round(item.quantity * item.unitCost))}</span>
-        <span className="text-muted"> · ₦{qty(item.unitCost)}/{item.unit.replace(/s$/, "")}</span>
-      </p>
+      {canManage && (
+        <p className="mt-4 text-sm">
+          Cost: <span className="font-semibold">{formatNaira(Math.round(item.quantity * item.unitCost))}</span>
+          <span className="text-muted"> · ₦{qty(item.unitCost)}/{item.unit.replace(/s$/, "")}</span>
+        </p>
+      )}
 
       {item.avgDailyUsage !== null && item.daysLeft !== null && (
         <p className={`mt-1 text-xs ${item.needsAttention ? "text-bad" : "text-muted"}`}>

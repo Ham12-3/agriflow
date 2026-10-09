@@ -28,17 +28,22 @@ async function Overview() {
   const ctx = await requireContext();
   const farms = listUserFarms(ctx.user.id);
   const livestock = farms.reduce((s, f) => s + f.livestock, 0);
-  const revenue = farms.reduce((s, f) => s + f.revenue, 0);
-  const expenses = farms.reduce((s, f) => s + f.expenses, 0);
+  // Money only covers farms where this person is a manager or owner.
+  const withMoney = farms.filter((f) => f.revenue !== null && f.expenses !== null);
+  const seesMoney = withMoney.length > 0;
+  const revenue = withMoney.reduce((s, f) => s + (f.revenue ?? 0), 0);
+  const expenses = withMoney.reduce((s, f) => s + (f.expenses ?? 0), 0);
   const net = revenue - expenses;
   const margin = revenue > 0 ? Math.round((net / revenue) * 100) : null;
   const maxHead = Math.max(1, ...farms.map((f) => f.livestock));
+  const money = (n: number) => (seesMoney ? formatNaira(n) : "—");
+  const caption = seesMoney ? "This year" : "Managers only";
 
   const stats = [
     { label: "Livestock count", value: livestock.toLocaleString("en-NG"), caption: "Head" },
-    { label: "Total revenue", value: formatNaira(revenue), caption: "This year" },
-    { label: "Total expenses", value: formatNaira(expenses), caption: "This year" },
-    { label: "Net profit", value: formatNaira(net), caption: "This year", tone: net < 0 ? "text-bad" : "" },
+    { label: "Total revenue", value: money(revenue), caption },
+    { label: "Total expenses", value: money(expenses), caption },
+    { label: "Net profit", value: money(net), caption, tone: seesMoney && net < 0 ? "text-bad" : "" },
   ];
 
   return (
@@ -61,16 +66,17 @@ async function Overview() {
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-line bg-card p-5">
           <h2 className="text-base font-semibold">Revenue by Farm</h2>
+          {!seesMoney && <p className="mt-3 text-sm text-muted">Only farm managers and owners can see money.</p>}
           <ul className="mt-4 space-y-4">
-            {farms.map((f) => {
-              const share = revenue > 0 ? Math.round((f.revenue / revenue) * 100) : 0;
+            {withMoney.map((f) => {
+              const share = revenue > 0 ? Math.round(((f.revenue ?? 0) / revenue) * 100) : 0;
               return (
                 <li key={f.id}>
                   <div className="flex justify-between gap-3 text-sm">
                     <span>{f.name}</span>
                     <span className="text-right">
-                      <span className="block font-semibold">{formatNaira(f.revenue)}</span>
-                      <span className="block text-[11px] text-muted">Net: {formatNaira(f.revenue - f.expenses)}</span>
+                      <span className="block font-semibold">{formatNaira(f.revenue ?? 0)}</span>
+                      <span className="block text-[11px] text-muted">Net: {formatNaira((f.revenue ?? 0) - (f.expenses ?? 0))}</span>
                     </span>
                   </div>
                   <Bar pct={share} />
@@ -96,8 +102,8 @@ async function Overview() {
           </ul>
           <div className="mt-6 border-t border-line pt-4">
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Portfolio margin</p>
-            <p className={`mt-1 text-2xl font-semibold ${margin !== null && margin < 0 ? "text-bad" : ""}`}>
-              {margin === null ? "—" : `${String(margin).replace("-", "−")}%`}
+            <p className={`mt-1 text-2xl font-semibold ${seesMoney && margin !== null && margin < 0 ? "text-bad" : ""}`}>
+              {!seesMoney || margin === null ? "—" : `${String(margin).replace("-", "−")}%`}
             </p>
             <p className="text-[11px] uppercase tracking-[0.08em] text-muted">Net profit margin</p>
           </div>
