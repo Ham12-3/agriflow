@@ -31,8 +31,8 @@ export async function POST(request: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ input: text, language, voice }),
-      // A CPU can take a minute or more for a long sentence.
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(180_000)]),
+      // A CPU can take three minutes or more for a long sentence.
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(300_000)]),
     });
     if (!res.ok || !res.body) {
       console.error("TTS error", res.status, await res.text().catch(() => ""));
